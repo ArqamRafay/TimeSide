@@ -218,25 +218,6 @@ class TestAnalyzerResultYaml(TestAnalyzerResultGoodType):
         self.assertEqual(type(self.result.data_object.frame_metadata),
                          type(from_results['foo_bar'].data_object.frame_metadata))
 
-class TestAnalyzerResultXml(TestAnalyzerResultGoodType):
-    """ test AnalyzerResult xml serialize """
-    def tearDown(self):
-        results = AnalyzerResultContainer([self.result])
-        r_xml = results.to_xml()
-        if verbose:
-            print 'to xml:'
-            print r_xml
-
-        from_results = AnalyzerResultContainer()
-        from_results.from_xml(r_xml)
-        if verbose:
-            print '%15s' % 'from xml:',
-            print from_results
-
-        #for i in range(len(d_xml)):
-        self.assertEqual(results, from_results)
-
-
 class TestAnalyzerResultJson(TestAnalyzerResultGoodType):
     """ test AnalyzerResult """
     def tearDown(self):
@@ -263,9 +244,9 @@ class TestAnalyzerResultAsDict(TestAnalyzerResultGoodType):
 
     def tearDown(self):
 
-        self.assertIsInstance(self.result.as_dict(), dict)
+        self.assertIsInstance(self.result.to_dict(), dict)
         self.assertItemsEqual(self.result.keys() + ['data_mode', 'time_mode'],
-                              self.result.as_dict().keys())
+                              self.result.to_dict().keys())
 
 if __name__ == '__main__':
     unittest.main(testRunner=TestRunner())

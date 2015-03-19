@@ -46,6 +46,8 @@ import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 
+import pandas as pd
+
 numpy_data_types = [
     #'float128',
     'float64',
@@ -74,29 +76,8 @@ numpy_data_types = map(lambda x: getattr(np, x), numpy_data_types)
 
 class Parameters(dict):
 
-    def as_dict(self):
+    def to_dict(self):
         return self
-
-    def to_xml(self):
-        import xml.etree.ElementTree as ET
-        root = ET.Element('Metadata')
-
-        for key in self.keys():
-            child = ET.SubElement(root, key)
-            child.text = repr(self[key])
-
-        return ET.tostring(root, encoding="utf-8", method="xml")
-
-
-    def from_xml(self, xml_string):
-        import xml.etree.ElementTree as ET
-        import ast
-        root = ET.fromstring(xml_string)
-        for child in root:
-            key = child.tag
-            if child.text:
-                self[key] = ast.literal_eval(child.text)
-
 
     def to_hdf5(self, h5group):
         hdf5.dict_to_hdf5(self, h5group)
@@ -125,7 +106,7 @@ class MetadataObject(Parameters):
 
     Methods
     -------
-    as_dict()
+    to_dict()
         Return a dictionnary representation of the MetadataObject
     """
 
@@ -176,7 +157,7 @@ class MetadataObject(Parameters):
                                                     new_default_value)
             super(MetadataObject, self).__delattr__(name)
 
-    def as_dict(self):
+    def to_dict(self):
         return dict((att, getattr(self, att))
                     for att in self.keys())
 
@@ -206,7 +187,7 @@ class MetadataObject(Parameters):
                 for att in self.keys()))
 
     def __str__(self):
-        return self.as_dict().__str__()
+        return self.to_dict().__str__()
 
     def __eq__(self, other):
         return (isinstance(other, self.__class__)
@@ -214,7 +195,7 @@ class MetadataObject(Parameters):
 
     def __ne__(self, other):
         return not(isinstance(other, self.__class__)
-                   or self.as_dict() != other.as_dict())
+                   or self.to_dict() != other.to_dict())
 
 
 class IdMetadata(MetadataObject):
@@ -429,41 +410,15 @@ class DataObject(MetadataObject):
                    any([np.array_equal(self[key], other[key])
                         for key in self.keys()]))
 
-    def as_dict(self):
-        as_dict = super(DataObject, self).as_dict()
+    def to_dict(self):
+        as_dict = super(DataObject, self).to_dict()
 
         for key in ['frame_metadata', 'label_metadata']:
             #  TODO : check if its needed now
             if key in as_dict and isinstance(as_dict[key], MetadataObject):
-                as_dict[key] = as_dict[key].as_dict()
+                as_dict[key] = as_dict[key].to_dict()
         return as_dict
-                
-
-    def to_xml(self):
-        import xml.etree.ElementTree as ET
-        root = ET.Element('Metadata')
-
-        for key in self.keys():
-            child = ET.SubElement(root, key)
-            value = getattr(self, key)
-            if hasattr(value, 'to_xml'):
-                child = value.to_xml()
-            elif value not in [None, []]:
-                child.text = repr(value.tolist())
-                child.set('dtype', value.dtype.__str__())
-
-        return ET.tostring(root, encoding="utf-8", method="xml")
-
-    def from_xml(self, xml_string):
-        import xml.etree.ElementTree as ET
-        import ast
-        root = ET.fromstring(xml_string)
-        for child in root:
-            key = child.tag
-            if child.text:
-                self[key] = np.asarray(ast.literal_eval(child.text),
-                                          dtype=child.get('dtype'))
-
+          
     def to_hdf5(self, h5group):
         # Write Datasets
         for key in self.keys():
@@ -596,47 +551,11 @@ class AnalyzerResult(MetadataObject):
         else:
             return len(self.data_object.label)
 
-    def as_dict(self):
-        return dict([(key, self[key].as_dict())
+    def to_dict(self):
+        return dict([(key, self[key].to_dict())
                      for key in self.keys() ]+ #if hasattr(self[key], 'as_dict')] +
                     [('data_mode', self.data_mode), ('time_mode', self.time_mode)])
                     # TODO : check if it can be simplified now
-
-    def to_xml(self):
-        import xml.etree.ElementTree as ET
-        root = ET.Element('result')
-        root.metadata = {'name': self.id_metadata.name,
-                         'id': self.id_metadata.id}
-
-        for name in ['data_mode', 'time_mode']:
-            child = ET.SubElement(root, name)
-            child.text = str(self.__getattribute__(name))
-            child.tag = name
-            root.append(child)
-
-        for key in self.keys():
-            child = ET.fromstring(self[key].to_xml())
-            child.tag = key
-            root.append(child)
-
-        return ET.tostring(root, encoding="utf-8", method="xml")
-
-    @staticmethod
-    def from_xml(xml_string):
-        import xml.etree.ElementTree as ET
-        root = ET.fromstring(xml_string)
-
-        data_mode_child = root.find('data_mode')
-        time_mode_child = root.find('time_mode')
-        result = AnalyzerResult(data_mode=data_mode_child.text,
-                                time_mode=time_mode_child.text)
-        for child in root:
-            key = child.tag
-            if key not in ['data_mode', 'time_mode']:
-                child_string = ET.tostring(child)
-                result[key].from_xml(child_string)
-
-        return result
 
     def to_hdf5(self, h5_file):
         # Save results in HDF5 Dataset
@@ -998,33 +917,6 @@ class AnalyzerResultContainer(dict):
     def list_id(self):
         return [res.id for res in self.values()]
 
-    def to_xml(self, output_file=None):
-
-        import xml.etree.ElementTree as ET
-        # TODO : cf. telemeta util
-        root = ET.Element('timeside')
-
-        for result in self.values():
-            if result is not None:
-                root.append(ET.fromstring(result.to_xml()))
-
-        xml_str = ET.tostring(root, encoding="utf-8", method="xml")
-        if output_file:
-            open(output_file, 'w').write(xml_str)
-        else:
-            return xml_str
-
-    def from_xml(self, xml_string):
-        import xml.etree.ElementTree as ET
-
-        # TODO : from file
-        #tree = ET.parse(xml_file)
-        #root = tree.getroot()
-        root = ET.fromstring(xml_string)
-        for child in root.iter('result'):
-            self.add(AnalyzerResult.from_xml(ET.tostring(child)),
-                     overwrite=True)
-
     def to_json(self, output_file=None):
         #if data_list == None: data_list = self.results
         
@@ -1039,7 +931,7 @@ class AnalyzerResultContainer(dict):
                 print type(obj)
                 raise TypeError(repr(obj) + " is not JSON serializable")
 
-        json_str = json.dumps([res.as_dict() for res in self.values()],
+        json_str = json.dumps([res.to_dict() for res in self.values()],
                               default=NumpyArrayEncoder)
         if output_file:
             open(output_file, 'w').write(json_str)
@@ -1079,7 +971,7 @@ class AnalyzerResultContainer(dict):
 
         yaml.add_representer(np.ndarray, numpyArray_representer)
 
-        yaml_str = yaml.dump([res.as_dict() for res in self.values()])
+        yaml_str = yaml.dump([res.to_dict() for res in self.values()])
         if output_file:
             open(output_file, 'w').write(yaml_str)
         else:
@@ -1200,7 +1092,7 @@ class Analyzer(Processor):
         from datetime import datetime
 
         result = AnalyzerResult(data_mode=data_mode,
-                                        time_mode=time_mode)
+                                time_mode=time_mode)
 
         # Automatically write known metadata
         result.id_metadata.date = datetime.now().replace(
